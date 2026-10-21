@@ -130,7 +130,7 @@ class TraceTooLarge(Exception):
     pass
 
 
-def trace_search(b: tuple, turn: str, algo: str, cap: int = 1600) -> list:
+def trace_search(b: tuple, turn: str, algo: str, cap: int = 1600, max_depth: int | None = None) -> list:
     """Record every step of the search as a list of event dicts (for the visualizer)."""
     events: list = []
     counter = [0]
@@ -140,19 +140,20 @@ def trace_search(b: tuple, turn: str, algo: str, cap: int = 1600) -> list:
             raise TraceTooLarge
         events.append(e)
 
-    def rec(board, t, parent, move, alpha, beta):
+    def rec(board, t, parent, move, alpha, beta, depth):
         nid = counter[0]
         counter[0] += 1
-        add(dict(type="enter", id=nid, parent=parent, move=move, board=board, turn=t, alpha=alpha, beta=beta))
-        if is_terminal(board):
-            v = utility(board)
-            add(dict(type="leaf", id=nid, value=v))
+        add(dict(type="enter", id=nid, parent=parent, move=move, board=board, turn=t, alpha=alpha, beta=beta, depth=depth))
+        term = is_terminal(board)
+        if term or (max_depth is not None and depth >= max_depth):
+            v = utility(board) if term else solve(board, t)
+            add(dict(type="leaf", id=nid, value=v, cutoff=not term))
             return v
         maxi = t == "X"
         best = -INF if maxi else INF
         moves = legal_moves(board)
         for idx, m in enumerate(moves):
-            v = rec(play(board, m, t), other(t), nid, m, alpha, beta)
+            v = rec(play(board, m, t), other(t), nid, m, alpha, beta, depth + 1)
             if maxi:
                 best = max(best, v)
                 alpha = max(alpha, best) if alpha is not None else None
@@ -162,15 +163,15 @@ def trace_search(b: tuple, turn: str, algo: str, cap: int = 1600) -> list:
             if alpha is not None and alpha >= beta:
                 rest = tuple(moves[idx + 1:])
                 if rest:
-                    add(dict(type="prune", id=nid, moves=rest, alpha=alpha, beta=beta, turn=t))
+                    add(dict(type="prune", id=nid, moves=rest, alpha=alpha, beta=beta, turn=t, depth=depth))
                 break
-        add(dict(type="exit", id=nid, value=int(best), turn=t))
+        add(dict(type="exit", id=nid, value=int(best), turn=t, depth=depth))
         return int(best)
 
     if algo == "alphabeta":
-        rec(b, turn, None, None, -INF, INF)
+        rec(b, turn, None, None, -INF, INF, 0)
     else:
-        rec(b, turn, None, None, None, None)
+        rec(b, turn, None, None, None, None, 0)
     return events
 
 
